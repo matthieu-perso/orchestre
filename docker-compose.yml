@@ -1,0 +1,6 @@
+services:
+  orchestre:
+    container_name: orchestre
+    build: .
+    ports:
+      - "8000:8000"
