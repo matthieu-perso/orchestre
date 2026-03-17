@@ -7,7 +7,7 @@ from db.cruds.users import get_user_data, get_user_providers, update_user
 from db.schemas.users import UsersSchema
 from providers.bridge import bridge
 
-from .users import User, get_current_user
+from .users import User, get_current_user, require_session_user
 
 router = APIRouter()
 
@@ -23,7 +23,7 @@ async def get_my_providers(curr_user: User = Depends(get_current_user)):
         user_id = curr_user["uid"]
         my_providers = get_user_providers(id=user_id)
         all_providers = bridge.get_all_providers()
-        status_autobot = autobot.status_my_auto_bot(curr_user)
+        status_autobot = await autobot.status_my_auto_bot(curr_user)
         return MessageOK(
             data={
                 "my_providers": my_providers,
@@ -50,12 +50,37 @@ async def get_providers(curr_user: User = Depends(get_current_user)):
 @router.get(
     "/google_auth",
     summary="The endpoint for Google authentication",
-    description="This endpoint is registered on the Google Cloud platform.<br>"
-    "When new Gmail provider account is authenticated, this endpoint is called by Google cloud platform with authenticate code",
+    description="OAuth callback registered on Google Cloud Platform.",
 )
-async def google_auth(request: Request):
+async def google_auth(request: Request, _: str = Depends(require_session_user)):
     try:
         return await bridge.get_access_token("gmailprovider", request)
+    except Exception as e:
+        return MessageErr(reason=str(e))
+
+
+@router.get(
+    "/shopify_auth",
+    summary="Shopify OAuth callback",
+    description="Registered as the redirect_uri in Shopify app settings. "
+                "Exchanges the OAuth code for an access token and registers the store.",
+)
+async def shopify_auth(request: Request, _: str = Depends(require_session_user)):
+    try:
+        return await bridge.get_access_token("shopifyprovider", request)
+    except Exception as e:
+        return MessageErr(reason=str(e))
+
+
+@router.get(
+    "/amazon_auth",
+    summary="Amazon SP-API OAuth callback",
+    description="Registered as the redirect_uri in Amazon Seller Central. "
+                "Exchanges the authorization code for LWA tokens and registers the seller.",
+)
+async def amazon_auth(request: Request, _: str = Depends(require_session_user)):
+    try:
+        return await bridge.get_access_token("amazonprovider", request)
     except Exception as e:
         return MessageErr(reason=str(e))
 
@@ -64,13 +89,15 @@ async def google_auth(request: Request):
     "/link_provider",
     summary="Link the account for specific provider",
     description="This endpoint is used to link the account which supported by provider.<br><br>"
+    "Requires login (session). Call /users/token or /users/loginWithToken first.<br><br>"
     "<i>provider_name</i> : indicates the provider such as 'gmailprovider' or 'whatsappprovider'<br>"
     "<i>redirect_url</i> : indicates the url which returns with <i>access_token</i> and <i>refresh_token</i><br>",
 )
 async def link_Provider(
+    request: Request,
     provider_name: str = "gmailprovider",
     redirect_url: str = "http://localhost:3000/callback/oauth",
-    request: Request = None,
+    _: str = Depends(require_session_user),
 ):
     try:
         return await bridge.link_provider(provider_name, redirect_url, request)

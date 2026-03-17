@@ -140,9 +140,8 @@ class Loader:
                         )
                 else:
                     raise ModuleNotFoundError(f"No spec found for module '{name}'")
-            except ModuleNotFoundError as e:
-                self.log.error(f"Can't import module '{name}'! ({e}) -> Skipping it.")
-
+            except (ModuleNotFoundError, FileNotFoundError) as e:
+                self.log.warning(f"Can't import module '{name}' ({e}) -> Skipping it.")
                 continue
 
             plugin_found: bool = False

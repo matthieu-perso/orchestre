@@ -197,18 +197,19 @@ class Bridge:
         provider_name: str,
         identifier_name: str,
         user_data: any,
-        option=any,
+        option=None,
     ):
         key = provider_name.lower()
         if identifier_name not in self.system_provider_list[key]:
             self.system_provider_list[key][identifier_name] = self.providers[key]()
 
-        self.system_provider_list[key][identifier_name].set_base_info(
-            user_id, identifier_name
-        )
-        return await self.system_provider_list[key][identifier_name].get_all_products(
-            user_data, option=option
-        )
+        instance = self.system_provider_list[key][identifier_name]
+        instance.set_base_info(user_id, identifier_name)
+
+        # Prefer typed method via legacy wrapper if available (avoids duplicate method collision)
+        if hasattr(instance, "_get_all_products_legacy"):
+            return await instance._get_all_products_legacy(user_data)
+        return await instance.get_all_products(user_data, option=option)
 
     async def scrapy_all_chats(
         self,

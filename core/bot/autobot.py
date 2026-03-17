@@ -1,110 +1,142 @@
-import asyncio
+"""
+AutoBot - dispatches recurring provider automation jobs to the ARQ queue.
+State is persisted in Redis (via ARQ), not in-memory. This means the server
+can restart and jobs will continue running on the worker process.
+"""
+import logging
+from typing import Optional
 
-from core.task.task import TaskManager
+import redis.asyncio as aioredis
+from arq import create_pool
+from arq.connections import ArqRedis, RedisSettings
+
+from core.config import settings
 from core.utils.log import BackLog
-from db.cruds.users import get_user_data
-from providers.bridge import bridge
+from core.queue.worker import get_redis_settings
+
+logger = logging.getLogger(__name__)
+
+# Key pattern: autobot_status:{uid}:{provider}:{identifier}
+_STATUS_PREFIX = "autobot_status"
+# Default polling interval (seconds)
+DEFAULT_INTERVAL = 30
 
 
-class AutoBot(TaskManager):
-    def __init__(self):
-        self.task_list = {}
-        self.task_status_list = {}
-        pass
+class AutoBot:
+    """
+    Manages recurring provider automation jobs via ARQ.
+    Jobs are enqueued into Redis; a separate worker process executes them.
+    """
 
-    async def start(user_id: str, provider_name: str, identifier_name: str):
-        user_data = get_user_data(user_id)
+    def __init__(self) -> None:
+        self._redis_settings = get_redis_settings()
 
-        if provider_name in user_data and identifier_name in user_data[provider_name]:
-            await bridge.start_autobot(
-                user_id,
-                provider_name,
-                identifier_name,
-                user_data[provider_name][identifier_name],
-                {
-                    "namespace": f"{provider_name}_{user_id}_{identifier_name}",
-                },
-            )
-        else:
-            await bridge.start_autobot(
-                user_id,
-                provider_name,
-                identifier_name,
-                None,
-                {
-                    "namespace": f"{provider_name}_{user_id}_{identifier_name}",
-                },
-            )
-        pass
+    async def _get_pool(self) -> ArqRedis:
+        return await create_pool(self._redis_settings)
 
-    def start_auto_bot(
-        self, user: any, provider_name: str, identifier_name: str, interval: int
-    ):
+    def _status_key(self, uid: str, provider: str, identifier: str) -> str:
+        return f"{_STATUS_PREFIX}:{uid}:{provider}:{identifier}"
+
+    async def start_auto_bot(
+        self,
+        user: Optional[dict],
+        provider_name: str,
+        identifier_name: str,
+        interval: int = DEFAULT_INTERVAL,
+    ) -> None:
         if user is None:
             return
 
         uid = user["uid"]
+        key = self._status_key(uid, provider_name, identifier_name)
 
-        if self.status_auto_bot(user, provider_name, identifier_name) == False:
-            if not uid in self.task_list:
-                self.task_list[uid] = {}
+        pool = await self._get_pool()
+        try:
+            # Mark as active in Redis (TTL slightly longer than the interval)
+            await pool.set(key, "active", ex=interval * 10)
 
-            if not uid in self.task_status_list:
-                self.task_status_list[uid] = {}
-
-            if not provider_name in self.task_list[uid]:
-                self.task_list[uid][provider_name] = {}
-
-            if not provider_name in self.task_status_list[uid]:
-                self.task_status_list[uid][provider_name] = {}
-
-            self.task_list[uid][provider_name][identifier_name] = self.create_task(
-                AutoBot.start,
-                interval,
-                user_id=user["uid"],
+            # Enqueue the first run immediately; subsequent runs are re-enqueued
+            # from within the task itself using _defer pattern
+            await pool.enqueue_job(
+                "run_provider_autobot",
+                user_id=uid,
                 provider_name=provider_name,
                 identifier_name=identifier_name,
+                _job_id=f"autobot:{uid}:{provider_name}:{identifier_name}",
+                _defer_by=0,
             )
-            self.task_status_list[uid][provider_name][identifier_name] = True
+            BackLog.info(
+                instance=self,
+                message=f"Enqueued autobot: {provider_name}/{identifier_name}",
+            )
+        finally:
+            await pool.aclose()
 
-        pass
+    async def stop_auto_bot(
+        self,
+        user: Optional[dict],
+        provider_name: str,
+        identifier_name: str,
+    ) -> None:
+        if user is None:
+            return
 
-    async def stop_auto_bot(self, user: any, provider_name: str, identifier_name: str):
         uid = user["uid"]
+        key = self._status_key(uid, provider_name, identifier_name)
 
-        if (
-            user is not None
-            and uid in self.task_list
-            and provider_name in self.task_list[uid]
-            and identifier_name in self.task_list[uid][provider_name]
-        ):
-            was_cancelled = self.task_list[uid][provider_name][identifier_name].cancel()
-            self.task_status_list[uid][provider_name][identifier_name] = False
-            BackLog.info(instance=self, message=f"stop_auto_bot: {was_cancelled}")
+        pool = await self._get_pool()
+        try:
+            await pool.delete(key)
+            # ARQ doesn't support cancelling by job_id directly in all versions,
+            # but the status key absence means the task won't re-enqueue itself.
+            BackLog.info(
+                instance=self,
+                message=f"Stopped autobot: {provider_name}/{identifier_name}",
+            )
+        finally:
+            await pool.aclose()
 
-        pass
-
-    # issue happens
-    def status_auto_bot(self, user: any, provider_name: str, identifier_name: str):
-        if (
-            user is None
-            or not user["uid"] in self.task_list
-            or not provider_name in self.task_list[user["uid"]]
-            or not identifier_name in self.task_list[user["uid"]][provider_name]
-        ):
+    async def status_auto_bot(
+        self,
+        user: Optional[dict],
+        provider_name: str,
+        identifier_name: str,
+    ) -> bool:
+        if user is None:
             return False
-        else:
-            uid = user["uid"]
-            if self.task_list[uid][provider_name][identifier_name].done() == True:
-                return False
 
-            return True
+        uid = user["uid"]
+        key = self._status_key(uid, provider_name, identifier_name)
 
-    def status_my_auto_bot(self, user: any):
-        if user is None or not user["uid"] in self.task_status_list:
+        pool = await self._get_pool()
+        try:
+            value = await pool.get(key)
+            return value is not None
+        finally:
+            await pool.aclose()
+
+    async def status_my_auto_bot(self, user: Optional[dict]) -> dict:
+        if user is None:
             return {}
-        else:
-            return self.task_status_list[user["uid"]]
+
+        uid = user["uid"]
+        pattern = f"{_STATUS_PREFIX}:{uid}:*"
+
+        pool = await self._get_pool()
+        try:
+            keys = await pool.keys(pattern)
+            result: dict = {}
+            for key in keys:
+                parts = key.decode().split(":")
+                if len(parts) >= 4:
+                    provider = parts[2]
+                    identifier = ":".join(parts[3:])
+                    if provider not in result:
+                        result[provider] = {}
+                    result[provider][identifier] = True
+            return result
+        finally:
+            await pool.aclose()
 
 
 autobot = AutoBot()

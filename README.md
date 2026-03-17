@@ -35,7 +35,7 @@ There are two simple steps
 You have to add your environement variables. Rename the `.env.sample`  file to `.env` and add in the relevant variables. 
 
 - Add a `SESSION_KEY` : Can be anything, but this allows you to keep your account secure. 
-- Download your service account and rename to `fireabase-serviceaccount.json` 
+- Download your service account and rename to `firebase-serviceaccount.json` 
 - Download your firebase config and rename to ` firebase.json` 
 - Add your LLM keys (eg add in your OpenAI api key)
 
@@ -44,13 +44,23 @@ You have to add your environement variables. Rename the `.env.sample`  file to `
 
 For the Gmail service 
 - Create a Oauth Credential from your GCP account. More info [here](https://developers.google.com/identity/protocols/oauth2)
-- Download the credential file and rename to `oauth2_credentials.json` 
+- Download the credential file and rename to `oauth2-credentials.json` (app credentials; user tokens are stored in Firestore) 
 
 ## Run the app locally
 
-Install [poetry](https://python-poetry.org/) and run install the requirements with the command below :  
+**Python 3.11 or 3.12 required** (Python 3.13 is not yet supported by several dependencies).
+
+If you have Python 3.13, install Python 3.12 and use it for this project:
 
 ```bash
+brew install python@3.12
+poetry env use python3.12
+```
+
+Install [poetry](https://python-poetry.org/) and run install the requirements:
+
+```bash
+poetry lock
 poetry install
 ```
 
@@ -69,6 +79,21 @@ http://localhost:8000/docs
 ```
 
 Now that the server is live - setup a user using the signup endpoint & connect your providers and LLMs !
+
+# CI/CD
+
+- **CI** (on push/PR): `black`, `isort`, `pytest` — see [.github/workflows/ci.yml](.github/workflows/ci.yml)
+- **CD** (on push to `main`): Deploy to GCP Cloud Run — see [.github/workflows/deploy.yml](.github/workflows/deploy.yml)
+
+Run lint locally before pushing:
+```bash
+poetry run black .
+poetry run isort .
+```
+
+# Production deployment
+
+See **[DEPLOYMENT.md](DEPLOYMENT.md)** for Docker Compose, GCP Cloud Run, and cloud deployment.
 
 # Documentation
 

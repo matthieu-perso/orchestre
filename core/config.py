@@ -1,91 +1,146 @@
-import os
 import sys
 from pathlib import Path
+from typing import Optional
 
-from dotenv import load_dotenv
-
-env_path = Path(".") / ".env"
-load_dotenv(dotenv_path=env_path)
+from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
-class Settings:
+class Settings(BaseSettings):
+    model_config = SettingsConfigDict(
+        env_file=".env",
+        env_file_encoding="utf-8",
+        extra="ignore",
+    )
+
     PROJECT_NAME: str = "Orchestre"
-    PROJECT_VERSION: str = "0.1.0"
+    PROJECT_VERSION: str = "0.2.0"
 
-    OPENAI_API_KEY: str = os.getenv("OPENAI_API_KEY")
-    if not OPENAI_API_KEY:
-        print("OPENAI_API_KEY is not undefined")
+    SESSION_KEY: str
 
-    BANANA_MODEL_KEY: str = os.getenv("BANANA_MODEL_KEY")
-    if not BANANA_MODEL_KEY:
-        print("BANANA_MODEL_KEY is not undefined")
+    # --- Production security ---
+    PRODUCTION: bool = False
+    # Comma-separated allowed origins for CORS (e.g. "https://app.example.com,https://admin.example.com")
+    # In production, set this; leave empty to allow all (dev only).
+    CORS_ORIGINS: str = ""
+    # Reject Shopify webhooks when secret is not configured
+    STRICT_WEBHOOK_VERIFICATION: bool = False
 
-    PINECONE_API_KEY: str = os.getenv("PINECONE_API_KEY")
-    if not PINECONE_API_KEY:
-        print("PINECONE_API_KEY is not undefined")
+    # --- Database ---
+    POSTGRES_USER: str = "orchestre"
+    POSTGRES_PASSWORD: str = "orchestre"
+    POSTGRES_DB: str = "orchestre"
+    POSTGRES_HOST: str = "localhost"
+    POSTGRES_PORT: int = 5432
 
-    PINECONE_PRODUCT_INDEX: str = os.getenv("PINECONE_PRODUCT_INDEX")
-    if not PINECONE_PRODUCT_INDEX:
-        print("PINECONE_PRODUCT_INDEX is not undefined")
-
-    PINECONE_PRODUCT_ENVIRONMENT: str = os.getenv("PINECONE_PRODUCT_ENVIRONMENT")
-    if not PINECONE_PRODUCT_ENVIRONMENT:
-        print("PINECONE_PRODUCT_ENVIRONMENT is not undefined")
-
-    RUNPOD_API_KEY: str = os.getenv("RUNPOD_API_KEY")
-    if not RUNPOD_API_KEY:
-        print("RUNPOD_API_KEY is not undefined")
-
-    RUNPOD_ENDPOINT: str = os.getenv("RUNPOD_ENDPOINT")
-    if not RUNPOD_ENDPOINT:
-        print("RUNPOD_ENDPOINT is not undefined")
-
-    CEREBRIUM_API_KEY: str = os.getenv("CEREBRIUM_API_KEY")
-    if not CEREBRIUM_API_KEY:
-        print("CEREBRIUM_API_KEY is not undefined")
-
-    HUGGINGFACE_API_KEY: str = os.getenv("HUGGINGFACE_API_KEY")
-    if not HUGGINGFACE_API_KEY:
-        print("HUGGINGFACE_API_KEY is not undefined")
-
-    HUGGINGFACE_ENDPOINT: str = os.getenv("HUGGINGFACE_ENDPOINT")
-    if not HUGGINGFACE_ENDPOINT:
-        print("HUGGINGFACE_ENDPOINT is not undefined")
-
-    HTTP_ENDPOINT: str = os.getenv("HTTP_ENDPOINT")
-    if not HTTP_ENDPOINT:
-        print("HTTP_ENDPOINT is not undefined")
-
-    SESSION_KEY: str = os.getenv("SESSION_KEY")
-    if not SESSION_KEY:
-        print("Please input SESSION_KEY in .env file. This is used for middleware")
-        sys.exit()
-
-    FIREBASE_SERVICE_ACCOUNT = Path(".") / "firebase-serviceaccount.json"
-    if not os.path.exists(FIREBASE_SERVICE_ACCOUNT):
-        print(
-            "Firebase service account is not indiciated. Please configure firebase project and download serviceaccount.json"
+    @property
+    def DATABASE_URL(self) -> str:
+        return (
+            f"postgresql+asyncpg://{self.POSTGRES_USER}:{self.POSTGRES_PASSWORD}"
+            f"@{self.POSTGRES_HOST}:{self.POSTGRES_PORT}/{self.POSTGRES_DB}"
         )
-        sys.exit()
 
-    FIREBASE_CONFIG = Path(".") / "firebase.json"
-    if not os.path.exists(FIREBASE_CONFIG):
-        print(
-            "Firebase configure json is not indicated. Please configure firebase project and download firebase.json"
+    @property
+    def DATABASE_URL_SYNC(self) -> str:
+        return (
+            f"postgresql+psycopg2://{self.POSTGRES_USER}:{self.POSTGRES_PASSWORD}"
+            f"@{self.POSTGRES_HOST}:{self.POSTGRES_PORT}/{self.POSTGRES_DB}"
         )
-        sys.exit()
 
-    FIREBASE_STORAGE_BUCKET: str = os.getenv("FIREBASE_STORAGE_BUCKET")
-    if not FIREBASE_STORAGE_BUCKET:
-        print("Please input STORAGE_BUCKET in .env file.")
-        sys.exit()
+    # --- Redis / Queue ---
+    REDIS_URL: str = "redis://localhost:6379"
 
-    GOOGLE_CREDENTIAL = Path(".") / "oauth2-credentials.json"
-    if not os.path.exists(GOOGLE_CREDENTIAL):
-        print(
-            "oauth2_credentials.json is not existed. Please configure and download it from Google Cloud console"
-        )
-        sys.exit()
+    # --- Firebase ---
+    FIREBASE_SERVICE_ACCOUNT: Path = Path("firebase-serviceaccount.json")
+    FIREBASE_CONFIG: Path = Path("firebase.json")
+    FIREBASE_STORAGE_BUCKET: str = ""
+    # Web API key for Auth REST API (or set in firebase.json as "apiKey")
+    FIREBASE_API_KEY: Optional[str] = None
+
+    # --- Google / Gmail OAuth ---
+    GOOGLE_CREDENTIAL: Path = Path("oauth2-credentials.json")
+
+    # --- LLMs ---
+    OPENAI_API_KEY: Optional[str] = None
+    OPENAI_MODEL: str = "gpt-4o"
+
+    HUGGINGFACE_API_KEY: Optional[str] = None
+    HUGGINGFACE_ENDPOINT: Optional[str] = None
+
+    # --- Vector store ---
+    PINECONE_API_KEY: Optional[str] = None
+    PINECONE_PRODUCT_INDEX: Optional[str] = None
+    PINECONE_PRODUCT_ENVIRONMENT: Optional[str] = None
+
+    # --- Shopify ---
+    SHOPIFY_API_KEY: Optional[str] = None
+    SHOPIFY_API_SECRET: Optional[str] = None
+    SHOPIFY_WEBHOOK_SECRET: Optional[str] = None
+    # API version to use (e.g. "2024-01")
+    SHOPIFY_API_VERSION: str = "2024-01"
+
+    # --- Amazon SP-API ---
+    AMAZON_CLIENT_ID: Optional[str] = None
+    AMAZON_CLIENT_SECRET: Optional[str] = None
+    # AWS IAM role for SP-API (optional, used for role assumption)
+    AMAZON_AWS_ACCESS_KEY: Optional[str] = None
+    AMAZON_AWS_SECRET_KEY: Optional[str] = None
+    AMAZON_AWS_ROLE_ARN: Optional[str] = None
+    AMAZON_REGION: str = "us-east-1"
+    # SP-API endpoint (NA/EU/FE)
+    AMAZON_ENDPOINT: str = "https://sellingpartnerapi-na.amazon.com"
+
+    # --- Amazon Advertising API ---
+    AMAZON_ADS_CLIENT_ID: Optional[str] = None
+    AMAZON_ADS_CLIENT_SECRET: Optional[str] = None
+    AMAZON_ADS_ENDPOINT: str = "https://advertising-api.amazon.com"
+
+    # --- Meta / Facebook Ads ---
+    META_APP_ID: Optional[str] = None
+    META_APP_SECRET: Optional[str] = None
+    META_ADS_API_VERSION: str = "v19.0"
+
+    # --- Google Ads ---
+    GOOGLE_ADS_DEVELOPER_TOKEN: Optional[str] = None
+    GOOGLE_ADS_CLIENT_ID: Optional[str] = None
+    GOOGLE_ADS_CLIENT_SECRET: Optional[str] = None
+    GOOGLE_ADS_API_VERSION: str = "v15"
+
+    # --- Webhook base URL (for registering with providers) ---
+    WEBHOOK_BASE_URL: str = "https://your-domain.com"
+
+    # --- EasyPost (carrier API for self-fulfilled Shopify orders) ---
+    # Sign up at https://www.easypost.com — free test API key available
+    EASYPOST_API_KEY: Optional[str] = None
+
+    # --- Alerts: Slack ---
+    # Create an Incoming Webhook in your Slack workspace:
+    # Slack > Apps > Incoming Webhooks > Add to Slack > copy URL
+    SLACK_WEBHOOK_URL: Optional[str] = None
+
+    # --- Alerts: Email (SMTP) ---
+    # Works with any SMTP provider: Gmail, SendGrid, Postmark, AWS SES, etc.
+    SMTP_HOST: Optional[str] = None
+    SMTP_PORT: int = 587
+    SMTP_USE_TLS: bool = True
+    SMTP_USERNAME: Optional[str] = None
+    SMTP_PASSWORD: Optional[str] = None
+    SMTP_FROM_EMAIL: Optional[str] = None
+    # Recipient for all alerts (can be the same as SMTP_USERNAME)
+    ALERT_EMAIL_TO: Optional[str] = None
+
+    def validate_critical(self) -> None:
+        if not self.SESSION_KEY:
+            print("SESSION_KEY is required. Use a random 32+ char string (e.g. openssl rand -hex 32)")
+            sys.exit(1)
+        if self.PRODUCTION and len(self.SESSION_KEY) < 32:
+            print("SESSION_KEY should be at least 32 characters in production. Use: openssl rand -hex 32")
+            sys.exit(1)
+        if not self.FIREBASE_SERVICE_ACCOUNT.exists():
+            print("firebase-serviceaccount.json not found. Download from Firebase Console > Project Settings > Service Accounts")
+            sys.exit(1)
+        if not self.FIREBASE_CONFIG.exists():
+            print("firebase.json not found. Download from Firebase Console > Project Settings > General")
+            sys.exit(1)
 
 
 settings = Settings()

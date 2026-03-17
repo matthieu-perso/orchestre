@@ -1,6 +1,89 @@
+version: "3.9"
+
 services:
   orchestre:
     container_name: orchestre
-    build: .
+    build:
+      context: .
+      target: production
     ports:
       - "8000:8000"
+    env_file:
+      - .env
+    environment:
+      POSTGRES_HOST: postgres
+      REDIS_URL: redis://redis:6379
+    volumes:
+      - ./firebase-serviceaccount.json:/app/firebase-serviceaccount.json:ro
+      - ./firebase.json:/app/firebase.json:ro
+      # Gmail OAuth: add real file, or create placeholder: echo '{}' > oauth2-credentials.json
+      - ./oauth2-credentials.json:/app/oauth2-credentials.json:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/probe"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+    restart: unless-stopped
+
+  worker:
+    container_name: orchestre-worker
+    build:
+      context: .
+      target: production
+    command: python worker.py
+    env_file:
+      - .env
+    environment:
+      POSTGRES_HOST: postgres
+      REDIS_URL: redis://redis:6379
+    volumes:
+      - ./firebase-serviceaccount.json:/app/firebase-serviceaccount.json:ro
+      - ./firebase.json:/app/firebase.json:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+
+  postgres:
+    container_name: orchestre-postgres
+    image: postgres:16-alpine
+    ports:
+      - "5432:5432"
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-orchestre}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-orchestre}
+      POSTGRES_DB: ${POSTGRES_DB:-orchestre}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-orchestre}"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  redis:
+    container_name: orchestre-redis
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+    restart: unless-stopped
+
+volumes:
+  postgres_data:
+  redis_data:

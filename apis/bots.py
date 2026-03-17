@@ -20,7 +20,7 @@ async def start_auto_bot(
     curr_user: User = Depends(get_current_user),
 ):
     try:
-        autobot.start_auto_bot(
+        await autobot.start_auto_bot(
             user=curr_user,
             provider_name=provider_name,
             identifier_name=identifier_name,
@@ -61,7 +61,7 @@ async def status_auto_bot(
     curr_user: User = Depends(get_current_user),
 ):
     try:
-        result = autobot.status_auto_bot(
+        result = await autobot.status_auto_bot(
             user=curr_user, provider_name=provider_name, identifier_name=identifier_name
         )
         return MessageOK(data={"message": {"status": result}})

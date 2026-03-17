@@ -31,26 +31,35 @@ SCOPES = [
 ]
 MAX_MESSAGES_COUNT = 10
 
-oauth2_crendential_path = settings.GOOGLE_CREDENTIAL
-oauth2_credentials = json.load(open(oauth2_crendential_path))
+oauth2_credential_path = settings.GOOGLE_CREDENTIAL
+oauth2_credentials = None
 oauth = OAuth()
-oauth.register(
-    name="google",
-    client_id=oauth2_credentials["web"]["client_id"],
-    client_secret=oauth2_credentials["web"]["client_secret"],
-    access_token_url=oauth2_credentials["web"]["token_uri"],
-    access_token_params=None,
-    authorize_url=oauth2_credentials["web"]["auth_uri"],
-    authorize_params=None,
-    api_base_url="https://www.googleapis.com/oauth2/v1/",
-    userinfo_endpoint="https://openidconnect.googleapis.com/v1/userinfo",
-    jwks_uri="https://www.googleapis.com/oauth2/v3/certs",
-    server_metadata_url="https://accounts.google.com/.well-known/openid-configuration",
-    client_kwargs={
-        "prompt": "consent",
-        "scope": "openid email profile https://www.googleapis.com/auth/gmail.readonly https://www.googleapis.com/auth/gmail.send https://www.googleapis.com/auth/gmail.compose",
-    },
-)
+
+try:
+    if oauth2_credential_path.exists() and oauth2_credential_path.is_file():
+        with open(oauth2_credential_path) as f:
+            oauth2_credentials = json.load(f)
+except (FileNotFoundError, OSError):
+    pass
+
+if oauth2_credentials:
+    oauth.register(
+        name="google",
+        client_id=oauth2_credentials["web"]["client_id"],
+        client_secret=oauth2_credentials["web"]["client_secret"],
+        access_token_url=oauth2_credentials["web"]["token_uri"],
+        access_token_params=None,
+        authorize_url=oauth2_credentials["web"]["auth_uri"],
+        authorize_params=None,
+        api_base_url="https://www.googleapis.com/oauth2/v1/",
+        userinfo_endpoint="https://openidconnect.googleapis.com/v1/userinfo",
+        jwks_uri="https://www.googleapis.com/oauth2/v3/certs",
+        server_metadata_url="https://accounts.google.com/.well-known/openid-configuration",
+        client_kwargs={
+            "prompt": "consent",
+            "scope": "openid email profile https://www.googleapis.com/auth/gmail.readonly https://www.googleapis.com/auth/gmail.send https://www.googleapis.com/auth/gmail.compose",
+        },
+    )
 
 
 class GMailProvider(BaseProvider):
@@ -68,6 +77,10 @@ class GMailProvider(BaseProvider):
         }
 
     async def link_provider(self, redirect_url: str, request: Request):
+        if oauth2_credentials is None:
+            raise RuntimeError(
+                "Gmail OAuth not configured. Add oauth2-credentials.json (from Google Cloud Console)."
+            )
         request.session.clear()
         request.session[REDIRECT_URL] = redirect_url
 
@@ -90,6 +103,8 @@ class GMailProvider(BaseProvider):
         return response
 
     async def get_access_token_from_refresh_token(self, refresh_token: str) -> str:
+        if oauth2_credentials is None:
+            raise RuntimeError("Gmail OAuth not configured. Add oauth2-credentials.json.")
         creds = Credentials.from_authorized_user_info(
             info={
                 "client_id": oauth2_credentials["web"]["client_id"],
@@ -101,6 +116,8 @@ class GMailProvider(BaseProvider):
         return creds.token
 
     def get_gmail_service(self, access_token: str):
+        if oauth2_credentials is None:
+            raise RuntimeError("Gmail OAuth not configured. Add oauth2-credentials.json.")
         creds = Credentials(
             token=access_token,
             client_id=oauth2_credentials["web"]["client_id"],
@@ -318,7 +335,7 @@ class GMailProvider(BaseProvider):
                     access_token=self.access_token,
                     option="",
                 )
-                ai_response = openai_service.get_response(
+                ai_response = openai_service.get_response_sync(
                     message=last_message["snippet"],
                     option="",
                 )
@@ -341,7 +358,7 @@ class GMailProvider(BaseProvider):
                 )
 
                 for message in last_messages["messages"]:
-                    ai_response = openai_service.get_response(
+                    ai_response = openai_service.get_response_sync(
                         message=message["snippet"], option=""
                     )
                     self.reply_to_message(

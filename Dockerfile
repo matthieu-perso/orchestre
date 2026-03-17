@@ -1,4 +1,4 @@
-FROM python:3.10-slim-bullseye AS python-base
+FROM python:3.12-slim-bookworm AS python-base
 ARG SESSION_KEY
 ARG OPENAI_API_KEY
 ARG BANANA_MODEL_KEY
@@ -85,10 +85,12 @@ CMD ["tail", "-f", "/dev/null"]
 # RUN coverage run --rcfile ./pyproject.toml -m pytest ./tests
 # RUN coverage report --fail-under 95
 
-# 'production' stage uses the clean 'python-base' stage and copyies
+# 'production' stage uses the clean 'python-base' stage and copies
 # in only our runtime deps that were installed in the 'builder-base'
 FROM python-base AS production
 ENV FASTAPI_ENV=production
+
+RUN apt-get update && apt-get install -y --no-install-recommends curl && rm -rf /var/lib/apt/lists/*
 
 COPY --from=builder-base $VENV_PATH $VENV_PATH
 COPY gunicorn_conf.py /gunicorn_conf.py
